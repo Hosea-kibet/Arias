@@ -1,89 +1,304 @@
-# Arias implementation tasks
+# Arias
 
-Each tool action is a separate implementation task. For example, appending sheet rows and reading sheet rows are different tasks. At runtime, one incoming event can produce several `ToolCall` records.
+Arias is our custom Node.js + TypeScript backend for event handling and routing through OpenAI to Google Calendar, Google Sheets, and Slack-native reminders. The backend uses the Bolt SDK to call Slack APIs.
 
-The scaffold is complete. Everything below is pending. Arias owns the backend and orchestration, OpenAI chooses agent tools, and the Bolt SDK is used to call Slack APIs.
+**Current scope: project skeleton.** The HTTP server, Zod validation, Prisma persistence, event creation/lookup, and Docker setup work. Slack listeners, background event processing, OpenAI tool calling, external API operations, and Slack confirmations are extension points to implement together. Creating an event stores it as `PENDING`; it does not execute an integration.
 
-## Shared foundation
+## Intended architecture
 
-- [ ] **CORE-01 — Event processing and tool execution**
-  - Wire persisted events to `EventRouter` through a worker, with `PENDING → PROCESSING → COMPLETED / FAILED` transitions.
-  - Build a shared executor that finds registered tools, validates inputs with Zod, and records inputs, outputs, errors, and timing in Prisma `ToolCall` records.
-  - Add execution identifiers and status fields through a migration where needed. Handle duplicate delivery and interrupted work without blindly repeating external writes.
-  - Done when a fake tool can complete or fail a persisted event, invalid arguments never reach the tool, and duplicate claims cannot execute the same event concurrently.
+```mermaid
+flowchart TD
+  Slack[Slack messages and mentions] --> SlackIntegration
+  subgraph Backend[Arias custom Node.js backend]
+    SlackIntegration[Slack integration] --> Events[Event service and Prisma persistence]
+    HTTP[HTTP routes → controllers] --> Events
+    Events --> Router[Event router / future worker]
+    Router --> OpenAI[OpenAI agent orchestration]
+    OpenAI --> Tools[Tool registry]
+    OpenAI -. Final confirmation .-> BoltSDK[Bolt SDK]
+    Tools --> BoltSDK
+  end
+  Tools --> Calendar[Google Calendar API]
+  Tools --> Sheets[Google Sheets API]
+  BoltSDK --> SlackAPIs[Slack APIs: messages and reminders]
+  SlackAPIs -. Replies and reminders .-> Slack
+```
 
-- [ ] **CORE-02 — OpenAI orchestration**
-  - Implement `OpenAIService` using the configured model and the tool registry.
-  - Pass tool requests to the shared executor, return their results to OpenAI, and collect the final response. Support multiple tool calls in one request.
-  - Preserve caller, channel/thread, and timezone context. Ask for missing details instead of inventing destinations, spreadsheet IDs, or dates.
-  - Bound tool-call rounds and execution time; report partial success accurately.
-  - Done when a mocked agent response can invoke a tool, receive its result, and produce a final answer; unknown tools and exhausted limits fail predictably.
-  - Depends on: CORE-01.
+Arias owns the routes, controllers, services, event routing, persistence, and agent orchestration. Fastify handles HTTP. Our backend uses the Bolt SDK as its client for Slack API calls, including posting confirmations and interacting with Slack reminders. Prisma uses PostgreSQL through the `@prisma/adapter-pg` driver adapter.
 
-- [ ] **AUTH-01 — Google API client**
-  - Connect the shared Google client to configured OAuth credentials and refresh tokens.
-  - Establish the calendar/spreadsheet resources available to the initial configured account.
-  - Done when Calendar and Sheets services can share authentication and expired/missing credentials produce useful errors without exposing secrets.
+## Run with Docker Compose
 
-- [ ] **AUTH-02 — Slack API client through Bolt SDK**
-  - Expose a shared Slack API client for messages and reminders from the custom backend.
-  - Verify the token type and scopes required for each operation; keep inbound event transport separate from outbound API calls.
-  - Done when integration services can use the client with mocked responses and missing credentials fail clearly.
+Requires Docker with the Compose plugin.
 
-## Tool tasks — one action per task
+```bash
+cp .env.example .env
+openssl rand -hex 32
+```
 
-- [ ] **TOOL-01 — Append Google Sheets rows: `sheets_append_rows`**
-  - Input: `spreadsheetId`, `range`, and `values`.
-  - Implement `SheetsService.appendRows`, preserving the existing Zod validation. Start with literal cell values so text is not accidentally interpreted as a formula.
-  - Return the spreadsheet ID, written range, and number of rows written.
-  - Done when valid rows reach the configured sheet, invalid rows fail before the API call, and API errors reach the executor. A retry after an uncertain write must not silently append duplicates.
-  - Depends on: CORE-01, AUTH-01.
+Put the generated value in `API_KEY` in `.env` and set `DATABASE_URL` to a reachable PostgreSQL database. The example values are intentionally unusable. External provider credentials can stay empty while developing the skeleton.
 
-- [ ] **TOOL-02 — Create Google Calendar event: `calendar_create_event`**
-  - Input: `calendarId`, `summary`, `start`, and `end`.
-  - Implement `CalendarService.createEvent`, including explicit timezone offsets and end-after-start validation.
-  - Return the provider event ID, event link, and confirmed start/end times.
-  - Done when a valid request creates an event, invalid times fail before the API call, and repeated execution is handled without silently creating another meeting.
-  - Depends on: CORE-01, AUTH-01.
+```bash
+docker compose up --build -d
+docker compose logs -f app
+```
 
-- [ ] **TOOL-03 — Create Slack reminder: `reminders_create`**
-  - Input: `text` and `time`, with recipient and timezone resolved from authenticated request context.
-  - Implement `RemindersService.createReminder` through the Bolt SDK's Slack API client. Verify the supported native reminder method, token type, and scopes before wiring the call.
-  - Return the reminder ID and confirmed scheduling details. Resolve ambiguous times before executing.
-  - Done when a supported reminder request succeeds and unsupported recipients, missing permissions, and invalid times produce explicit errors.
-  - Depends on: CORE-01, AUTH-02.
+The container applies the committed Prisma migrations to PostgreSQL before starting. The API runs at `http://localhost:3000`. `PORT` in `.env` can change the host port. Compose binds the API to localhost.
 
-- [ ] **TOOL-04 — Post Slack reply: `slack_post_reply`**
-  - Input: reply text plus channel/thread identifiers supplied by the original event context.
-  - Add a Slack service action that posts the final response through the Bolt SDK and returns the message ID/timestamp and channel.
-  - Initially this is a backend-controlled output action after orchestration. The model produces the text; the backend chooses the destination and sends the confirmation once.
-  - Done when a result is posted to the originating conversation, failed tools are not reported as successful, and a reply failure does not rerun completed Calendar/Sheets/reminder writes.
-  - Depends on: CORE-01, AUTH-02.
+```bash
+curl http://localhost:3000/health
+docker compose down
+```
 
-## Connect and release
+`docker compose down` does not affect the external database. After code changes, rerun `docker compose up --build -d` to rebuild the image.
 
-- [ ] **FLOW-01 — Receive Slack events**
-  - Choose and implement the inbound transport, verify its authenticity, and map messages/mentions into Arias events.
-  - Preserve workspace, user, channel, thread, provider event ID, and timezone context. Ignore bot messages to prevent reply loops.
-  - Done when one supported Slack message creates one queued event and provider retries do not create duplicates.
-  - Depends on: CORE-01, AUTH-02.
+## Step by step: upload to Docker Hub and deploy to DigitalOcean
 
-- [ ] **FLOW-02 — Complete request-to-reply workflow**
-  - Connect Slack input → event worker → OpenAI → tool execution → Slack reply.
-  - Verify single-tool and multi-tool requests, missing details, partial failures, and process restarts using mocked providers first.
-  - Run live checks only against designated test resources with configured credentials.
-  - Depends on: CORE-02, FLOW-01, TOOL-01 through TOOL-04.
+Our first cloud target is **DigitalOcean App Platform**, using an image pushed to **Docker Hub**. `compose.yaml` remains useful locally; App Platform runs the container image with its own service settings.
 
-- [ ] **OPS-01 — DigitalOcean deployment verification**
-  - Build/run the Docker image, apply migrations, check health, verify restart behavior, and test database backup/restore on the chosen Droplet.
-  - Review the documented dependency advisories and configure server-side credentials before release.
-  - Done when the complete workflow works in the deployed environment and persisted state survives container replacement.
-  - Depends on: FLOW-02.
+Follow the steps in order: prepare → build → test → log in → tag → upload → deploy. Steps 1–6 upload the image to Docker Hub. Steps 7–9 run that uploaded image on DigitalOcean App Platform.
 
-## Build order
+The image requires an external PostgreSQL database. Configure `DATABASE_URL` as an encrypted App Platform runtime variable and allow the service to connect to the database before deploying.
 
-Start with **CORE-01 → AUTH-01 → TOOL-01 (Sheets append)**. This gives us one complete tool execution path before connecting OpenAI. Then implement CORE-02, AUTH-02, TOOL-04, and FLOW-01 to deliver the first Slack-to-Sheets-to-Slack workflow. Add TOOL-02 and TOOL-03, complete FLOW-02, and verify deployment with OPS-01.
+### 1. Prepare Docker and your Docker Hub repository
 
-## Future tool tasks
+Start Docker on your computer and open a terminal in the project root, where `Dockerfile` and `package.json` are located. Check that Docker is available:
 
-Add these as individual tasks when we need them: read sheet rows, update sheet cells, list calendar events, update a calendar event, cancel a calendar event, list reminders, and cancel a reminder. They are outside the initial implementation above.
+```bash
+docker --version
+docker info
+```
+
+Sign in to Docker Hub, create a repository named `arias`, and choose whether it is public or private. In the commands below, replace `YOUR_DOCKERHUB_USERNAME` with your Docker Hub username, or the organization namespace that owns the repository.
+
+The existing multi-stage `Dockerfile`:
+
+- Installs dependencies from `package-lock.json`, generates Prisma Client, and compiles TypeScript.
+- Copies the compiled app, production dependencies, and migrations into the runtime image.
+- Runs as the `node` user, listens on `0.0.0.0:3000`, and applies migrations before starting the server.
+
+`.dockerignore` excludes `.env` and local databases. Set credentials at runtime; do not add them to the Dockerfile or build arguments. The runtime includes the Prisma CLI because the startup command applies migrations.
+
+### 2. Build the Docker image
+
+Run from the project root with Docker running:
+
+```bash
+docker build --platform linux/amd64 -t arias:deploy-001 .
+```
+
+Wait for the build to finish successfully. `arias` is the local image name and `deploy-001` is its version tag. The final `.` tells Docker to build from this project directory.
+
+### 3. Test the image locally
+
+Use the existing `.env` with a valid `API_KEY`. For a fresh checkout, copy `.env.example` and replace its placeholder API key first.
+
+```bash
+docker run --rm -d --name arias-check \
+  --env-file .env \
+  -e HOST=0.0.0.0 -e PORT=3000 \
+  -p 127.0.0.1:3001:3000 \
+  arias:deploy-001
+
+docker logs -f arias-check
+```
+
+Once the server is listening, use another terminal:
+
+```bash
+curl --fail http://localhost:3001/health
+docker stop arias-check
+```
+
+Expected response: `{"status":"ok","service":"arias"}`. This test container is removed when stopped, including its temporary database.
+
+### 4. Log in to Docker Hub
+
+Authenticate Docker with your Docker Hub account and follow the login prompts:
+
+```bash
+docker login
+```
+
+### 5. Tag the image for your Docker Hub repository
+
+```bash
+docker tag arias:deploy-001 YOUR_DOCKERHUB_USERNAME/arias:deploy-001
+```
+
+This gives the local image the repository name Docker Hub expects. It does not upload the image yet.
+
+### 6. Upload the image to Docker Hub
+
+```bash
+docker push YOUR_DOCKERHUB_USERNAME/arias:deploy-001
+```
+
+Wait for the push to finish, then open your `arias` repository on Docker Hub and check that `deploy-001` appears in its tags. The upload is complete when that image version is available. Docker Hub stores the image; DigitalOcean App Platform runs it.
+
+### 7. Select the Docker Hub image in App Platform
+
+In DigitalOcean, open **Apps → Create App → Container image**, choose **Docker Hub**, and enter repository `YOUR_DOCKERHUB_USERNAME/arias`, tag `deploy-001`. For a private repository, provide Docker Hub credentials in the registry credentials field using `username:token`; use a token with read access. Public repositories do not require pull credentials. Configure the component as a **Web Service**:
+
+| Setting | Value |
+| --- | --- |
+| HTTP port | `3000` |
+| Route | `/` |
+| Instance count | `1` for the initial check |
+| Health check | HTTP, path `/health` |
+| Run command | Leave blank to retain the Dockerfile startup command |
+
+### 8. Set runtime environment variables
+
+Add these runtime environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `NODE_ENV` | `production` |
+| `HOST` | `0.0.0.0` |
+| `PORT` | `3000` |
+| `API_KEY` | A random secret of at least 24 characters; mark encrypted |
+| `DATABASE_URL` | PostgreSQL connection URL; mark encrypted |
+
+Generate an API key with `openssl rand -hex 32` and paste it into the encrypted variable field. OpenAI, Slack, and Google credentials are optional while their integrations remain placeholders. App Platform does not receive your local `.env` from the image.
+
+### 9. Deploy and verify
+
+Review the resources and price shown, then deploy. Once the deployment completes, copy the HTTPS URL from App Platform and check the runtime logs. Verify the service from your terminal, replacing `YOUR_APP_HOSTNAME` with the hostname DigitalOcean provides:
+
+```bash
+curl --fail https://YOUR_APP_HOSTNAME/health
+```
+
+Expected response: `{"status":"ok","service":"arias"}`. Follow DigitalOcean's [container image deployment guide](https://docs.digitalocean.com/products/app-platform/how-to/deploy-from-container-images/) for the current dashboard flow.
+
+A successful health response verifies server startup and database connectivity. Slack listeners and agent execution are still pending; health does not verify those integrations.
+
+### 10. Upload and deploy the next version
+
+After changing the code, build and upload a new version:
+
+```bash
+docker build --platform linux/amd64 -t arias:deploy-002 .
+docker tag arias:deploy-002 YOUR_DOCKERHUB_USERNAME/arias:deploy-002
+docker push YOUR_DOCKERHUB_USERNAME/arias:deploy-002
+```
+
+Then select tag `deploy-002` in the App Platform component and redeploy. App Platform does not automatically redeploy on Docker Hub pushes; trigger deployment after updating the selected tag. See [Docker Hub deployment support](https://docs.digitalocean.com/products/app-platform/how-to/deploy-from-container-images/).
+
+Before retaining real data, test migrations, backups, and persistence across deployments as described in [TASKS.md](TASKS.md).
+
+## Run locally
+
+Requires Node.js 24+, npm, and access to PostgreSQL.
+
+```bash
+cp .env.example .env
+# Set API_KEY and DATABASE_URL in .env.
+npm ci
+npm run db:generate
+npm run db:deploy
+npm run dev
+```
+
+Local development and Docker use the PostgreSQL database configured by `DATABASE_URL`. Other provider credentials are not needed to start the HTTP server.
+
+```bash
+npm run typecheck
+npm run build
+npm start
+```
+
+After editing `prisma/schema.prisma`, generate a migration locally and commit the resulting files:
+
+```bash
+npm run db:migrate -- --name describe_your_change
+npm run db:generate
+```
+
+Use `npm run db:studio` to inspect data. The Docker startup command uses `db:deploy`, which applies existing migrations without generating new ones.
+
+## HTTP endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Server/database health; no authentication |
+| POST | `/api/events` | Validate and persist an event; returns `201` |
+| GET | `/api/events/:id` | Read the persisted event and status |
+
+All `/api` routes require `Authorization: Bearer <API_KEY>`. An optional `idempotencyKey` must be unique; a duplicate returns `409`. Invalid input returns `400`; unknown event IDs return `404`.
+
+```bash
+export ARIAS_API_KEY='the-value-you-set-in-dot-env'
+
+curl -X POST http://localhost:3000/api/events \
+  -H "Authorization: Bearer $ARIAS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "type": "agent.request",
+    "source": "api",
+    "payload": {"text": "Schedule a meeting tomorrow"},
+    "idempotencyKey": "example-event-1"
+  }'
+
+curl http://localhost:3000/api/events/REPLACE_WITH_RETURNED_ID \
+  -H "Authorization: Bearer $ARIAS_API_KEY"
+```
+
+These endpoints store/read events only. There is no worker yet to move events out of `PENDING`.
+
+## Project layout
+
+```text
+src/
+  index.ts                   # Startup and graceful shutdown
+  app.ts                     # HTTP app and dependency wiring
+  config.ts                  # Zod environment validation
+  db.ts                      # Prisma client
+  errors.ts                  # Application errors
+  routes/                    # HTTP endpoint registration
+  controllers/               # Request validation and responses
+  services/                  # Event application logic
+  repositories/              # Prisma database access
+  validators/                # Zod request schemas and inferred types
+  middleware/                # API authentication and error handling
+  events/                    # Event dispatch registry; not wired to a worker
+  agent/                     # OpenAI client factory and service placeholder
+  tools/                     # Shared tool interface and registry
+  integrations/
+    slack/                   # Bolt SDK integration for Slack API calls
+    google/                  # Shared Google OAuth client factory
+    calendar/                # Calendar input schema and service placeholder
+    sheets/                  # Sheets input schema and service placeholder
+    reminders/               # Slack reminder schema and service placeholder
+  generated/prisma/          # Generated Prisma client; ignored by Git
+prisma/
+  schema.prisma              # Event and ToolCall models
+  migrations/                # Committed database migrations
+Dockerfile
+compose.yaml
+```
+
+`Event` holds incoming payloads and processing status. `ToolCall` is the audit model for future agent tool execution; the skeleton does not populate it yet. Reminder delivery will use Slack rather than a separate local reminder scheduler.
+
+## Integration configuration and next steps
+
+The implementation checklist is in [TASKS.md](TASKS.md). Each tool action has its own task, inputs, dependencies, and completion criteria. We will start with the shared executor and the Sheets append tool, then connect OpenAI and Slack.
+
+1. **Slack integration:** use the Bolt SDK inside Arias to call Slack APIs. Configure the tokens and scopes required by each operation, then implement sending messages, posting confirmations, and reminder API calls. Connect incoming Slack events to Arias's event service as a separate part of the integration. The existing `slack.app.ts` factory is a placeholder for this work.
+2. **Event routing:** register handlers in `EventRouter`; implement a worker and status transitions, retries, and deduplication before dispatching persisted events.
+3. **OpenAI:** set `OPENAI_API_KEY` and `OPENAI_MODEL`. Implement the Responses API function-calling loop in `OpenAIService`, using the tool registry and recording results in `ToolCall`.
+4. **Google:** enable Calendar and Sheets APIs, configure OAuth credentials and a refresh token in `.env`, then implement the Calendar/Sheets services. The intended scopes are `calendar.events` and `spreadsheets` on the Google API scope URL. The OAuth consent/token acquisition flow is not included.
+5. **Reminders:** implement the selected Slack-native reminder API and its required scopes/token type. `SLACK_USER_TOKEN` is reserved for methods requiring a user token; this app does not use it yet.
+
+To add a tool, create its integration service and Zod schema, then register an `AgentTool` in `src/tools/tool.registry.ts`. Add a Prisma model only if that integration needs local persistence. Placeholder service methods deliberately throw `501` errors so they cannot report fake success.
+
+This scaffold uses one shared API key and one configured set of provider credentials. Workspace/user authorization and per-user OAuth storage are future application work.
+
+The current npm install reports four high-severity dependency advisories in Prisma's dependency tree, including `mysql2` and `deepmerge-ts`. Review compatible upstream fixes before production deployment; no forced dependency overrides have been applied.
+
+## Reference documentation
+
+- [Prisma PostgreSQL configuration](https://www.prisma.io/docs/orm/overview/databases/postgresql)
+- [OpenAI tool use](https://developers.openai.com/api/docs/guides/function-calling)
+- [Google Calendar events.insert](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert)
+- [Google Sheets values.append](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/append)

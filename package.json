@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
+    "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -22,13 +23,14 @@
     "node": ">=24.0.0"
   },
   "dependencies": {
-    "@prisma/adapter-better-sqlite3": "7.10.0",
+    "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "7.10.0",
     "@slack/bolt": "^5.1.0",
     "dotenv": "^17.4.2",
     "fastify": "^5.12.4",
     "google-auth-library": "^11.0.2",
     "openai": "^7.15.0",
+    "pg": "^8.23.0",
     "prisma": "7.10.0",
     "zod": "^4.6.2"
   },
@@ -38,7 +40,6 @@
     "typescript": "^5.9.3"
   },
   "allowScripts": {
-    "better-sqlite3@12.11.1": true,
     "esbuild@0.28.2": true,
     "prisma@7.10.0": true,
     "@prisma/engines@7.10.0": true

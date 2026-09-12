@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { AppError } from '../../errors.js';
+import type { Config } from '../../config.js';
+import { createGoogleClient } from '../google/google.client.js';
 
 export const appendSheetRowsSchema = z.strictObject({
   spreadsheetId: z.string().min(1),
@@ -8,9 +9,26 @@ export const appendSheetRowsSchema = z.strictObject({
 });
 
 export class SheetsService {
+  constructor(private readonly config: Config) {}
+
   async appendRows(input: unknown): Promise<unknown> {
-    appendSheetRowsSchema.parse(input);
-    // TODO: call Google Sheets spreadsheets.values.append.
-    throw new AppError(501, 'Google Sheets integration is not implemented yet');
+    const append = appendSheetRowsSchema.parse(input);
+    const client = createGoogleClient(this.config);
+    const response = await client.request<{
+      spreadsheetId?: string;
+      tableRange?: string;
+      updates?: { updatedRange?: string; updatedRows?: number };
+    }>({
+      url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(append.spreadsheetId)}/values/${encodeURIComponent(append.range)}:append`,
+      method: 'POST',
+      params: { valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS' },
+      data: { values: append.values },
+    });
+    return {
+      spreadsheetId: response.data.spreadsheetId,
+      tableRange: response.data.tableRange,
+      updatedRange: response.data.updates?.updatedRange,
+      updatedRows: response.data.updates?.updatedRows,
+    };
   }
 }
