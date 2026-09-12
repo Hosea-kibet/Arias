@@ -35,11 +35,11 @@ CREATE TABLE "new_Event" (
     "executionId" TEXT,
     "attemptCount" INTEGER NOT NULL DEFAULT 0,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "startedAt" DATETIME,
     "completedAt" DATETIME
 );
-INSERT INTO "new_Event" ("completedAt", "createdAt", "error", "id", "idempotencyKey", "payload", "result", "source", "startedAt", "status", "type") SELECT "completedAt", "createdAt", "error", "id", "idempotencyKey", "payload", "result", "source", "startedAt", "status", "type" FROM "Event";
+INSERT INTO "new_Event" ("completedAt", "createdAt", "error", "id", "idempotencyKey", "payload", "result", "source", "startedAt", "status", "type", "updatedAt") SELECT "completedAt", "createdAt", "error", "id", "idempotencyKey", "payload", "result", "source", "startedAt", "status", "type", "createdAt" FROM "Event";
 DROP TABLE "Event";
 ALTER TABLE "new_Event" RENAME TO "Event";
 CREATE UNIQUE INDEX "Event_idempotencyKey_key" ON "Event"("idempotencyKey");

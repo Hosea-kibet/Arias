@@ -1,5 +1,14 @@
 import { z } from 'zod';
+import type { Config } from '../../config.js';
 import { AppError } from '../../errors.js';
+
+interface ReminderClient {
+  reminders: {
+    add(input: { token: string; text: string; time: string }): Promise<{
+      reminder?: { id?: string; text?: string; time?: number; complete_ts?: number };
+    }>;
+  };
+}
 
 export const createReminderSchema = z.strictObject({
   text: z.string().min(1),
@@ -7,10 +16,26 @@ export const createReminderSchema = z.strictObject({
 });
 
 export class RemindersService {
+  constructor(
+    private readonly config: Config,
+    private readonly client: ReminderClient,
+  ) {}
+
   async createReminder(input: unknown): Promise<unknown> {
-    createReminderSchema.parse(input);
-    // TODO: implement Slack-native reminders and validate the required token
-    // type/scopes for the chosen Slack method before enabling this integration.
-    throw new AppError(501, 'Slack reminders integration is not implemented yet');
+    const reminder = createReminderSchema.parse(input);
+    if (!this.config.SLACK_USER_TOKEN) {
+      throw new AppError(503, 'SLACK_USER_TOKEN is required to create reminders');
+    }
+    const response = await this.client.reminders.add({
+      token: this.config.SLACK_USER_TOKEN,
+      text: reminder.text,
+      time: reminder.time,
+    });
+    return {
+      id: response.reminder?.id,
+      text: response.reminder?.text,
+      time: response.reminder?.time,
+      completeTs: response.reminder?.complete_ts,
+    };
   }
 }

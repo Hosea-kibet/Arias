@@ -7,12 +7,8 @@ import { EventController } from './controllers/event.controller.js';
 import { eventRoutes } from './routes/event.routes.js';
 import { requireApiKey } from './middleware/auth.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
-import { EventRouter } from './events/event-router.js';
-import { EventWorker } from './events/event-worker.js';
-import { ToolExecutor } from './tools/tool.executor.js';
-import { createToolRegistry } from './tools/tool.registry.js';
 
-export function buildApp(config: Config, db: Db, events = new EventService(new EventRepository(db))) {
+export function buildApp(config: Config, db: Db) {
   const app = Fastify({
     logger: config.NODE_ENV === 'test' ? false : {
       redact: ['req.headers.authorization'],
@@ -26,7 +22,7 @@ export function buildApp(config: Config, db: Db, events = new EventService(new E
     return { status: 'ok', service: 'arias' };
   });
 
-  const controller = new EventController(events);
+  const controller = new EventController(new EventService(new EventRepository(db)));
   app.register(async api => {
     api.addHook('onRequest', requireApiKey(config.API_KEY));
     eventRoutes(api, controller);

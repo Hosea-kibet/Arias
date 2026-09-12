@@ -1,13 +1,6 @@
 import { z } from 'zod';
-import { AppError } from '../../errors.js';
-
-export interface GoogleRequestClient {
-  request<T>(options: {
-    url: string;
-    method: 'POST';
-    data: unknown;
-  }): Promise<{ data: T }>;
-}
+import type { Config } from '../../config.js';
+import { createGoogleClient } from '../google/google.client.js';
 
 export const createCalendarEventSchema = z.strictObject({
   calendarId: z.string().min(1).default('primary'),
@@ -19,36 +12,26 @@ export const createCalendarEventSchema = z.strictObject({
 });
 
 export class CalendarService {
-  constructor(private readonly googleClient: GoogleRequestClient) {}
+  constructor(private readonly config: Config) {}
 
   async createEvent(input: unknown): Promise<unknown> {
-    const { calendarId, summary, start, end } = createCalendarEventSchema.parse(input);
-
-    try {
-      const response = await this.googleClient.request<{
-        id?: string;
-        htmlLink?: string;
-        status?: string;
-        summary?: string;
-      }>({
-        url: `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
-        method: 'POST',
-        data: {
-          summary,
-          start: { dateTime: start },
-          end: { dateTime: end },
-        },
-      });
-
-      return {
-        eventId: response.data.id ?? null,
-        htmlLink: response.data.htmlLink ?? null,
-        status: response.data.status ?? null,
-        summary: response.data.summary ?? summary,
-      };
-    } catch (error) {
-      if (error instanceof AppError) throw error;
-      throw new AppError(502, 'Google Calendar event creation failed');
-    }
+    const event = createCalendarEventSchema.parse(input);
+    const client = createGoogleClient(this.config);
+    const response = await client.request<{ id?: string; htmlLink?: string; status?: string }>({
+      url: `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(event.calendarId)}/events`,
+      method: 'POST',
+      data: {
+        summary: event.summary,
+        start: { dateTime: event.start },
+        end: { dateTime: event.end },
+      },
+    });
+    return {
+      id: response.data.id,
+      link: response.data.htmlLink,
+      status: response.data.status,
+      start: event.start,
+      end: event.end,
+    };
   }
 }

@@ -1,17 +1,26 @@
 import { App } from '@slack/bolt';
+import { z } from 'zod';
 import type { Config } from '../../config.js';
 import { AppError } from '../../errors.js';
-import type { EventService } from '../../services/event.service.js';
 
-type SlackMessage = {
+export const slackMentionPayloadSchema = z.strictObject({
+  text: z.string().min(1),
+  channel: z.string().min(1),
+  threadTs: z.string().min(1),
+  user: z.string().optional(),
+  team: z.string().optional(),
+});
+
+export interface SlackMention {
+  idempotencyKey: string;
+  text: string;
   channel: string;
-  ts: string;
-  text?: string;
+  threadTs: string;
   user?: string;
-  thread_ts?: string;
-};
+  team?: string;
+}
 
-export function createSlackApp(config: Config, events: EventService) {
+export function createSlackApp(config: Config, onMention: (mention: SlackMention) => Promise<void>) {
   if (!config.SLACK_BOT_TOKEN || !config.SLACK_APP_TOKEN) {
     throw new AppError(503, 'Slack is not configured');
   }
@@ -20,33 +29,16 @@ export function createSlackApp(config: Config, events: EventService) {
     appToken: config.SLACK_APP_TOKEN,
     socketMode: true,
   });
-  const persistMessage = async (message: SlackMessage, say: (message: { text: string; thread_ts?: string }) => Promise<unknown>) => {
-    const event = await events.create({
-      type: 'slack.message',
-      source: 'slack',
-      payload: {
-        channel: message.channel,
-        text: message.text ?? '',
-        user: message.user ?? null,
-        ts: message.ts,
-        threadTs: message.thread_ts ?? null,
-      },
-      idempotencyKey: `slack:${message.channel}:${message.ts}`,
+  app.event('app_mention', async ({ event }) => {
+    if (event.bot_id || !event.text.trim()) return;
+    await onMention({
+      idempotencyKey: `slack:${event.team ?? event.user_team ?? 'unknown'}:${event.event_ts}`,
+      text: event.text.replace(/<@[^>]+>/g, '').trim(),
+      channel: event.channel,
+      threadTs: event.thread_ts ?? event.ts,
+      user: event.user,
+      team: event.team ?? event.user_team,
     });
-    await say({
-      text: `Received your request (${event.id}).`,
-      ...(message.thread_ts ? { thread_ts: message.thread_ts } : { thread_ts: message.ts }),
-    });
-  };
-
-  app.event('app_mention', async ({ event, say }) => {
-    await persistMessage(event, say);
   });
-
-  app.message(async ({ event, say }) => {
-    if (event.channel_type !== 'im') return;
-    await persistMessage(event, say);
-  });
-
   return app;
 }

@@ -1,19 +1,10 @@
 import { AppError } from '../errors.js';
 import type { Event } from '../generated/prisma/client.js';
-import { z } from 'zod';
-import type { ToolExecutor } from '../tools/tool.executor.js';
 
-export interface EventHandlerContext {
-  executionId: string;
-}
+export type EventHandler = (event: Event) => Promise<unknown>;
 
-export type EventHandler = (event: Event, context: EventHandlerContext) => Promise<unknown>;
-
-const toolEventPayloadSchema = z.strictObject({
-  tool: z.string().trim().min(1),
-  arguments: z.unknown(),
-});
-
+// Routing extension point. A future worker will load PENDING events and dispatch
+// them here, then save the outcome. No worker or handlers are wired up yet.
 export class EventRouter {
   private readonly handlers = new Map<string, EventHandler>();
 
@@ -23,21 +14,9 @@ export class EventRouter {
     return this;
   }
 
-  registerToolEvent(type: string, executor: ToolExecutor) {
-    return this.register(type, async (event, context) => {
-      const payload = toolEventPayloadSchema.parse(event.payload);
-      return executor.execute({
-        eventId: event.id,
-        executionId: context.executionId,
-        name: payload.tool,
-        input: payload.arguments,
-      });
-    });
-  }
-
-  async dispatch(event: Event, context: EventHandlerContext) {
+  async dispatch(event: Event) {
     const handler = this.handlers.get(event.type);
     if (!handler) throw new AppError(501, `No handler implemented for event type: ${event.type}`);
-    return handler(event, context);
+    return handler(event);
   }
 }

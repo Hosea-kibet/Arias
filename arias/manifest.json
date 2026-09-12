@@ -37,6 +37,7 @@
       "bot": [
         "channels:history",
         "im:history",
+        "views:write",
         "chat:write",
         "commands"
       ]

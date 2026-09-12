@@ -1,72 +1,39 @@
 import { AppError } from '../errors.js';
-import type { EventExecutionStore } from '../events/event-store.js';
-import { ToolRegistry } from './tool.registry.js';
+import type { Prisma } from '../generated/prisma/client.js';
+import type { ToolCallRepository } from '../repositories/tool-call.repository.js';
+import type { AgentTool } from './tool.types.js';
 
-export interface ToolExecutionRequest {
-  eventId: string;
-  executionId: string;
-  name: string;
-  input: unknown;
-}
-
-export class ToolInputValidationError extends Error {
-  constructor(public readonly toolName: string, public readonly issues: unknown) {
-    super(`Invalid arguments for tool: ${toolName}`);
-    this.name = 'ToolInputValidationError';
-  }
-}
-
-export class ToolOutputValidationError extends Error {
-  constructor(public readonly toolName: string, public readonly issues: unknown) {
-    super(`Invalid output from tool: ${toolName}`);
-    this.name = 'ToolOutputValidationError';
-  }
+function asJson(value: unknown): Prisma.InputJsonValue {
+  if (value === undefined) return {};
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function durationSince(startedAt: number) {
-  return Math.max(0, Date.now() - startedAt);
+  return error instanceof Error ? error.message : 'Tool execution failed';
 }
 
 export class ToolExecutor {
+  private readonly toolsByName: Map<string, AgentTool>;
+
   constructor(
-    private readonly store: EventExecutionStore,
-    private readonly registry: ToolRegistry,
-  ) {}
+    tools: AgentTool[],
+    private readonly toolCalls: ToolCallRepository,
+  ) {
+    this.toolsByName = new Map(tools.map(tool => [tool.name, tool]));
+  }
 
-  async execute(request: ToolExecutionRequest): Promise<unknown> {
-    const startedAt = new Date();
-    const startedAtMs = startedAt.getTime();
-    const call = await this.store.createToolCall({ ...request, startedAt });
-    const tool = this.registry.get(request.name);
+  async execute(eventId: string, name: string, input: unknown) {
+    const tool = this.toolsByName.get(name);
+    if (!tool) throw new AppError(400, `Unknown tool: ${name}`);
 
-    if (!tool) {
-      const error = new AppError(404, `Unknown tool: ${request.name}`);
-      await this.store.failToolCall(call.id, error.message, new Date(), durationSince(startedAtMs));
-      throw error;
-    }
-
-    const parsedInput = tool.inputSchema.safeParse(request.input);
-    if (!parsedInput.success) {
-      const error = new ToolInputValidationError(request.name, parsedInput.error.issues);
-      await this.store.failToolCall(call.id, error.message, new Date(), durationSince(startedAtMs));
-      throw error;
-    }
-
+    const parsedInput = tool.inputSchema.parse(input);
+    const toolCall = await this.toolCalls.create(eventId, name, asJson(parsedInput));
     try {
-      const rawOutput = await tool.execute(parsedInput.data);
-      const parsedOutput = tool.outputSchema?.safeParse(rawOutput);
-      if (parsedOutput && !parsedOutput.success) {
-        throw new ToolOutputValidationError(request.name, parsedOutput.error.issues);
-      }
-      const output = parsedOutput?.data ?? rawOutput;
-      await this.store.completeToolCall(call.id, output, new Date(), durationSince(startedAtMs));
+      const output = await tool.execute(parsedInput);
+      await this.toolCalls.complete(toolCall.id, asJson(output));
       return output;
     } catch (error) {
-      await this.store.failToolCall(call.id, errorMessage(error), new Date(), durationSince(startedAtMs));
+      await this.toolCalls.fail(toolCall.id, errorMessage(error));
       throw error;
     }
   }

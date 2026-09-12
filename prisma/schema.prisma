@@ -4,11 +4,10 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 enum EventStatus {
-  NEW
   PENDING
   PROCESSING
   COMPLETED
