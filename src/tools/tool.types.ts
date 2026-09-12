@@ -1,8 +1,9 @@
 import type { z } from 'zod';
 
-export interface AgentTool {
+export interface AgentTool<TInput = unknown, TOutput = unknown> {
   name: string;
   description: string;
-  inputSchema: z.ZodType;
-  execute(input: unknown): Promise<unknown>;
+  inputSchema: z.ZodType<TInput>;
+  outputSchema?: z.ZodType<TOutput>;
+  execute(input: TInput): Promise<TOutput>;
 }
