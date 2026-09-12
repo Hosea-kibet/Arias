@@ -1,12 +1,13 @@
 import { CalendarService, createCalendarEventSchema } from '../integrations/calendar/calendar.service.js';
+import { createGoogleClient } from '../integrations/google/google.client.js';
 import { SheetsService, appendSheetRowsSchema } from '../integrations/sheets/sheets.service.js';
 import { RemindersService, createReminderSchema } from '../integrations/reminders/reminders.service.js';
+import type { Config } from '../config.js';
 import type { AgentTool } from './tool.types.js';
 
-// Add future integrations here. These services validate input, then explicitly
-// report that execution is not implemented until we build their API adapters.
-export function createToolRegistry(): AgentTool[] {
-  const calendar = new CalendarService();
+// Add future integrations here. Services validate their own inputs before execution.
+export function createToolRegistry(config: Config): AgentTool[] {
+  const calendar = new CalendarService(createGoogleClient(config));
   const sheets = new SheetsService();
   const reminders = new RemindersService();
   return [
