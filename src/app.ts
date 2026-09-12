@@ -8,7 +8,7 @@ import { eventRoutes } from './routes/event.routes.js';
 import { requireApiKey } from './middleware/auth.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
 
-export function buildApp(config: Config, db: Db) {
+export function buildApp(config: Config, db: Db, events = new EventService(new EventRepository(db))) {
   const app = Fastify({
     logger: config.NODE_ENV === 'test' ? false : {
       redact: ['req.headers.authorization'],
@@ -22,7 +22,7 @@ export function buildApp(config: Config, db: Db) {
     return { status: 'ok', service: 'arias' };
   });
 
-  const controller = new EventController(new EventService(new EventRepository(db)));
+  const controller = new EventController(events);
   app.register(async api => {
     api.addHook('onRequest', requireApiKey(config.API_KEY));
     eventRoutes(api, controller);
