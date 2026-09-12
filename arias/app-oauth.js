@@ -9,7 +9,7 @@ const app = new App({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   clientId: process.env.SLACK_CLIENT_ID,
   clientSecret: process.env.SLACK_CLIENT_SECRET,
-  stateSecret: 'my-state-secret',
+  stateSecret: process.env.SLACK_STATE_SECRET || process.env.SLACK_SIGNING_SECRET,
   scopes: ['channels:history', 'chat:write', 'commands'],
   // FileInstallationStore is intended for development purposes only
   // Learn more: https://docs.slack.dev/tools/bolt-js/concepts/authenticating-oauth#installation-store
