@@ -7,6 +7,10 @@ import { EventController } from './controllers/event.controller.js';
 import { eventRoutes } from './routes/event.routes.js';
 import { requireApiKey } from './middleware/auth.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
+import { EventRouter } from './events/event-router.js';
+import { EventWorker } from './events/event-worker.js';
+import { ToolExecutor } from './tools/tool.executor.js';
+import { createToolRegistry } from './tools/tool.registry.js';
 
 export function buildApp(config: Config, db: Db, events = new EventService(new EventRepository(db))) {
   const app = Fastify({

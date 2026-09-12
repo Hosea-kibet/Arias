@@ -6,7 +6,7 @@ The scaffold is complete. Everything below is pending. Arias owns the backend an
 
 ## Shared foundation
 
-- [ ] **CORE-01 — Event processing and tool execution**
+- [x] **CORE-01 — Event processing and tool execution**
   - Wire persisted events to `EventRouter` through a worker, with `PENDING → PROCESSING → COMPLETED / FAILED` transitions.
   - Build a shared executor that finds registered tools, validates inputs with Zod, and records inputs, outputs, errors, and timing in Prisma `ToolCall` records.
   - Add execution identifiers and status fields through a migration where needed. Handle duplicate delivery and interrupted work without blindly repeating external writes.

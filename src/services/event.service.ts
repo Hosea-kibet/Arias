@@ -2,9 +2,13 @@ import { AppError } from '../errors.js';
 import { Prisma } from '../generated/prisma/client.js';
 import type { EventRepository } from '../repositories/event.repository.js';
 import type { CreateEventInput } from '../validators/event.validator.js';
+import type { EventWorker } from '../events/event-worker.js';
 
 export class EventService {
-  constructor(private readonly events: EventRepository) {}
+  constructor(
+    private readonly events: EventRepository,
+    private readonly worker: EventWorker,
+  ) {}
 
   async create(input: CreateEventInput) {
     try {
@@ -22,5 +26,9 @@ export class EventService {
     const event = await this.events.findById(id);
     if (!event) throw new AppError(404, 'Event not found');
     return event;
+  }
+
+  process(id: string) {
+    return this.worker.process(id);
   }
 }

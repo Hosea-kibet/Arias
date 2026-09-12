@@ -2,7 +2,7 @@
 
 Arias is our custom Node.js + TypeScript backend for event handling and routing through OpenAI to Google Calendar, Google Sheets, and Slack-native reminders. The backend uses the Bolt SDK to call Slack APIs.
 
-**Current scope: project skeleton.** The HTTP server, Zod validation, Prisma persistence, event creation/lookup, and Docker setup work. Slack listeners, background event processing, OpenAI tool calling, external API operations, and Slack confirmations are extension points to implement together. Creating an event stores it as `PENDING`; it does not execute an integration.
+**Current scope: CORE-01 is complete.** The HTTP server, Zod validation, Prisma persistence, event routing, worker claims, idempotent execution, and tool-call audit history are available. OpenAI orchestration, Slack listeners, and provider operations remain extension points for the next tasks.
 
 ## Intended architecture
 
@@ -12,7 +12,7 @@ flowchart TD
   subgraph Backend[Arias custom Node.js backend]
     SlackIntegration[Slack integration] --> Events[Event service and Prisma persistence]
     HTTP[HTTP routes → controllers] --> Events
-    Events --> Router[Event router / future worker]
+    Events --> Router[Event router and worker]
     Router --> OpenAI[OpenAI agent orchestration]
     OpenAI --> Tools[Tool registry]
     OpenAI -. Final confirmation .-> BoltSDK[Bolt SDK]
@@ -137,6 +137,7 @@ If Prisma returns a blank `Schema engine error` while creating SQLite and your s
 | GET | `/health` | Server/database health; no authentication |
 | POST | `/api/events` | Validate and persist an event; returns `201` |
 | GET | `/api/events/:id` | Read the persisted event and status |
+| POST | `/api/events/:id/process` | Atomically claim and execute a pending event |
 
 All `/api` routes require `Authorization: Bearer <API_KEY>`. An optional `idempotencyKey` must be unique; a duplicate returns `409`. Invalid input returns `400`; unknown event IDs return `404`.
 
@@ -155,9 +156,30 @@ curl -X POST http://localhost:3000/api/events \
 
 curl http://localhost:3000/api/events/REPLACE_WITH_RETURNED_ID \
   -H "Authorization: Bearer $ARIAS_API_KEY"
+
+curl -X POST http://localhost:3000/api/events/REPLACE_WITH_RETURNED_ID/process \
+  -H "Authorization: Bearer $ARIAS_API_KEY"
 ```
 
-These endpoints store/read events only. There is no worker yet to move events out of `PENDING`.
+To invoke a registered tool through the built-in router, create an event with type `tool.invoke` and a payload containing `tool` plus `arguments`:
+
+```json
+{
+  "type": "tool.invoke",
+  "source": "api",
+  "payload": {
+    "tool": "sheets_append_rows",
+    "arguments": {
+      "spreadsheetId": "spreadsheet-id",
+      "range": "Sheet1!A:B",
+      "values": [["Ada", "Lovelace"]]
+    }
+  },
+  "idempotencyKey": "append-example-1"
+}
+```
+
+The worker transitions events through `PENDING → PROCESSING → COMPLETED` or `FAILED`. A second delivery of a completed or processing event is reported as a duplicate or busy result and does not call the tool again. Interrupted processing is not replayed automatically because an external provider may already have accepted the write; use `recoverInterrupted` after reviewing provider state.
 
 ## Project layout
 
@@ -174,7 +196,7 @@ src/
   repositories/              # Prisma database access
   validators/                # Zod request schemas and inferred types
   middleware/                # API authentication and error handling
-  events/                    # Event dispatch registry; not wired to a worker
+  events/                    # Router, persistence contract, and worker
   agent/                     # OpenAI client factory and service placeholder
   tools/                     # Shared tool interface and registry
   integrations/
@@ -191,19 +213,19 @@ Dockerfile
 compose.yaml
 ```
 
-`Event` holds incoming payloads and processing status. `ToolCall` is the audit model for future agent tool execution; the skeleton does not populate it yet. Reminder delivery will use Slack rather than a separate local reminder scheduler.
+`Event` holds incoming payloads and processing status. `EventRun` records each claimed execution identifier and outcome. `ToolCall` records validated inputs, outputs or errors, status, and duration for every registered tool invocation. Reminder delivery will use Slack rather than a separate local reminder scheduler.
 
 ## Integration configuration and next steps
 
 The implementation checklist is in [TASKS.md](TASKS.md). Each tool action has its own task, inputs, dependencies, and completion criteria. We will start with the shared executor and the Sheets append tool, then connect OpenAI and Slack.
 
 1. **Slack integration:** use the Bolt SDK inside Arias to call Slack APIs. Configure the tokens and scopes required by each operation, then implement sending messages, posting confirmations, and reminder API calls. Connect incoming Slack events to Arias's event service as a separate part of the integration. The existing `slack.app.ts` factory is a placeholder for this work.
-2. **Event routing:** register handlers in `EventRouter`; implement a worker and status transitions, retries, and deduplication before dispatching persisted events.
+2. **Event routing:** CORE-01 is implemented in `EventRouter`, `EventWorker`, `ToolExecutor`, and `EventRepository`; register additional handlers as new flows are added.
 3. **OpenAI:** set `OPENAI_API_KEY` and `OPENAI_MODEL`. Implement the Responses API function-calling loop in `OpenAIService`, using the tool registry and recording results in `ToolCall`.
 4. **Google:** enable Calendar and Sheets APIs, configure OAuth credentials and a refresh token in `.env`, then implement the Calendar/Sheets services. The intended scopes are `calendar.events` and `spreadsheets` on the Google API scope URL. The OAuth consent/token acquisition flow is not included.
 5. **Reminders:** implement the selected Slack-native reminder API and its required scopes/token type. `SLACK_USER_TOKEN` is reserved for methods requiring a user token; this app does not use it yet.
 
-To add a tool, create its integration service and Zod schema, then register an `AgentTool` in `src/tools/tool.registry.ts`. Add a Prisma model only if that integration needs local persistence. Placeholder service methods deliberately throw `501` errors so they cannot report fake success.
+To add a tool, create its integration service and Zod schemas, then register an `AgentTool` in `src/tools/tool.registry.ts`. `ToolExecutor` validates input before execution and validates output afterward. Add a Prisma model only if that integration needs local persistence. Placeholder service methods deliberately throw `501` errors so they cannot report fake success.
 
 This scaffold uses one shared API key and one configured set of provider credentials. Workspace/user authorization and per-user OAuth storage are future application work.
 

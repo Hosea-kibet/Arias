@@ -8,6 +8,14 @@ datasource db {
 }
 
 enum EventStatus {
+  NEW
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ExecutionStatus {
   PENDING
   PROCESSING
   COMPLETED
@@ -23,24 +31,54 @@ model Event {
   status         EventStatus @default(PENDING)
   result         Json?
   error          String?
+  executionId    String?     @unique
+  attemptCount   Int         @default(0)
   createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @default(now()) @updatedAt
   startedAt      DateTime?
   completedAt    DateTime?
   toolCalls      ToolCall[]
+  runs           EventRun[]
 
   @@index([status, createdAt])
 }
 
+model EventRun {
+  id           String          @id @default(cuid())
+  eventId      String
+  event        Event           @relation(fields: [eventId], references: [id])
+  executionId  String          @unique
+  attempt      Int
+  status       ExecutionStatus  @default(PROCESSING)
+  result       Json?
+  error        String?
+  createdAt    DateTime        @default(now())
+  startedAt    DateTime        @default(now())
+  completedAt  DateTime?
+  updatedAt    DateTime        @default(now()) @updatedAt
+  toolCalls    ToolCall[]
+
+  @@index([eventId, createdAt])
+}
+
 model ToolCall {
-  id          String   @id @default(cuid())
-  eventId     String
-  event       Event    @relation(fields: [eventId], references: [id])
-  name        String
-  input       Json
-  output      Json?
-  error       String?
-  createdAt   DateTime @default(now())
-  completedAt DateTime?
+  id           String          @id @default(cuid())
+  eventId      String
+  event        Event           @relation(fields: [eventId], references: [id])
+  runId        String?
+  run          EventRun?       @relation(fields: [runId], references: [id])
+  executionId  String?
+  name         String
+  status       ExecutionStatus  @default(PENDING)
+  input        Json
+  output       Json?
+  error        String?
+  createdAt    DateTime        @default(now())
+  startedAt    DateTime?
+  completedAt  DateTime?
+  durationMs   Int?
 
   @@index([eventId])
+  @@index([runId])
+  @@index([executionId])
 }

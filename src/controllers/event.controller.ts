@@ -15,4 +15,9 @@ export class EventController {
     const { id } = eventParamsSchema.parse(request.params);
     return { data: await this.events.getById(id) };
   };
+
+  process = async (request: FastifyRequest) => {
+    const { id } = eventParamsSchema.parse(request.params);
+    return { data: await this.events.process(id) };
+  };
 }
