@@ -7,6 +7,10 @@ import { EventController } from './controllers/event.controller.js';
 import { eventRoutes } from './routes/event.routes.js';
 import { requireApiKey } from './middleware/auth.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
+import { EventRouter } from './events/event-router.js';
+import { EventWorker } from './events/event-worker.js';
+import { ToolExecutor } from './tools/tool.executor.js';
+import { createToolRegistry } from './tools/tool.registry.js';
 
 export function buildApp(config: Config, db: Db) {
   const app = Fastify({
@@ -22,7 +26,11 @@ export function buildApp(config: Config, db: Db) {
     return { status: 'ok', service: 'arias' };
   });
 
-  const controller = new EventController(new EventService(new EventRepository(db)));
+  const events = new EventRepository(db);
+  const executor = new ToolExecutor(events, createToolRegistry());
+  const router = new EventRouter().registerToolEvent('tool.invoke', executor);
+  const worker = new EventWorker(events, router);
+  const controller = new EventController(new EventService(events, worker));
   app.register(async api => {
     api.addHook('onRequest', requireApiKey(config.API_KEY));
     eventRoutes(api, controller);

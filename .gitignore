@@ -9,4 +9,5 @@ coverage/
 *.log
 google-service-account.json
 .env
+slack-calendar-service-4d0e5e4f683e1.json
 
