@@ -1,6 +1,6 @@
 # Arias
 
-Node.js + TypeScript service scaffold for Slack event handling and routing through OpenAI to Google Calendar, Google Sheets, and Slack-native reminders.
+Arias is our custom Node.js + TypeScript backend for event handling and routing through OpenAI to Google Calendar, Google Sheets, and Slack-native reminders. The backend uses the Bolt SDK to call Slack APIs.
 
 **Current scope: project skeleton.** The HTTP server, Zod validation, Prisma persistence, event creation/lookup, and Docker setup work. Slack listeners, background event processing, OpenAI tool calling, external API operations, and Slack confirmations are extension points to implement together. Creating an event stores it as `PENDING`; it does not execute an integration.
 
@@ -8,19 +8,23 @@ Node.js + TypeScript service scaffold for Slack event handling and routing throu
 
 ```mermaid
 flowchart TD
-  Slack[Slack messages and mentions] --> Bolt[Slack Bolt app]
-  Bolt --> Events[Event service and Prisma persistence]
-  HTTP[HTTP routes → controllers] --> Events
-  Events --> Router[Event router / future worker]
-  Router --> OpenAI[OpenAI agent]
-  OpenAI --> Tools[Tool registry]
+  Slack[Slack messages and mentions] --> SlackIntegration
+  subgraph Backend[Arias custom Node.js backend]
+    SlackIntegration[Slack integration] --> Events[Event service and Prisma persistence]
+    HTTP[HTTP routes → controllers] --> Events
+    Events --> Router[Event router / future worker]
+    Router --> OpenAI[OpenAI agent orchestration]
+    OpenAI --> Tools[Tool registry]
+    OpenAI -. Final confirmation .-> BoltSDK[Bolt SDK]
+    Tools --> BoltSDK
+  end
   Tools --> Calendar[Google Calendar API]
   Tools --> Sheets[Google Sheets API]
-  Tools --> Reminders[Slack-native reminders]
-  OpenAI -. Final confirmation .-> Slack
+  BoltSDK --> SlackAPIs[Slack APIs: messages and reminders]
+  SlackAPIs -. Replies and reminders .-> Slack
 ```
 
-Fastify handles HTTP. Prisma uses SQLite so local development and Docker need no separate database server. This is a single-instance starting point; changing to PostgreSQL later requires a Prisma provider/adapter change and new migrations.
+Arias owns the routes, controllers, services, event routing, persistence, and agent orchestration. Fastify handles HTTP. Our backend uses the Bolt SDK as its client for Slack API calls, including posting confirmations and interacting with Slack reminders. Prisma uses SQLite so local development and Docker need no separate database server. This is a single-instance starting point; changing to PostgreSQL later requires a Prisma provider/adapter change and new migrations.
 
 ## Run with Docker Compose
 
@@ -82,7 +86,7 @@ ssh -L 3001:127.0.0.1:3000 root@YOUR_DROPLET_IP
 curl http://localhost:3001/health
 ```
 
-A public HTTP endpoint/domain and HTTPS reverse proxy are not part of this skeleton. The planned Slack Socket Mode connection will be started from the backend when its listeners are implemented.
+A public HTTP endpoint/domain and HTTPS reverse proxy are not part of this skeleton. Slack API calls through the Bolt SDK will run within our backend when the integration is implemented.
 
 To deploy code updates from the project directory on the Droplet:
 
@@ -174,7 +178,7 @@ src/
   agent/                     # OpenAI client factory and service placeholder
   tools/                     # Shared tool interface and registry
   integrations/
-    slack/                   # Bolt Socket Mode factory; not started yet
+    slack/                   # Bolt SDK integration for Slack API calls
     google/                  # Shared Google OAuth client factory
     calendar/                # Calendar input schema and service placeholder
     sheets/                  # Sheets input schema and service placeholder
@@ -191,7 +195,9 @@ compose.yaml
 
 ## Integration configuration and next steps
 
-1. **Slack/Bolt:** configure `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`, implement mention/direct-message listeners in `slack.app.ts`, and connect them to the event service. The planned transport is Socket Mode. Start/stop Bolt alongside the HTTP server once listeners are ready. Add reply handling for confirmations.
+The implementation checklist is in [TASKS.md](TASKS.md). Each tool action has its own task, inputs, dependencies, and completion criteria. We will start with the shared executor and the Sheets append tool, then connect OpenAI and Slack.
+
+1. **Slack integration:** use the Bolt SDK inside Arias to call Slack APIs. Configure the tokens and scopes required by each operation, then implement sending messages, posting confirmations, and reminder API calls. Connect incoming Slack events to Arias's event service as a separate part of the integration. The existing `slack.app.ts` factory is a placeholder for this work.
 2. **Event routing:** register handlers in `EventRouter`; implement a worker and status transitions, retries, and deduplication before dispatching persisted events.
 3. **OpenAI:** set `OPENAI_API_KEY` and `OPENAI_MODEL`. Implement the Responses API function-calling loop in `OpenAIService`, using the tool registry and recording results in `ToolCall`.
 4. **Google:** enable Calendar and Sheets APIs, configure OAuth credentials and a refresh token in `.env`, then implement the Calendar/Sheets services. The intended scopes are `calendar.events` and `spreadsheets` on the Google API scope URL. The OAuth consent/token acquisition flow is not included.
