@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum EventStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Event {
+  id             String      @id @default(cuid())
+  type           String
+  source         String
+  payload        Json
+  idempotencyKey String?     @unique
+  status         EventStatus @default(PENDING)
+  result         Json?
+  error          String?
+  createdAt      DateTime    @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  toolCalls      ToolCall[]
+
+  @@index([status, createdAt])
+}
+
+model ToolCall {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id])
+  name        String
+  input       Json
+  output      Json?
+  error       String?
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+
+  @@index([eventId])
+}
