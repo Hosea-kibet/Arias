@@ -7,4 +7,6 @@ src/generated/
 *.db-journal
 coverage/
 *.log
+google-service-account.json
+.env
 
