@@ -195,6 +195,8 @@ compose.yaml
 
 ## Integration configuration and next steps
 
+The implementation checklist is in [TASKS.md](TASKS.md). Each tool action has its own task, inputs, dependencies, and completion criteria. We will start with the shared executor and the Sheets append tool, then connect OpenAI and Slack.
+
 1. **Slack integration:** use the Bolt SDK inside Arias to call Slack APIs. Configure the tokens and scopes required by each operation, then implement sending messages, posting confirmations, and reminder API calls. Connect incoming Slack events to Arias's event service as a separate part of the integration. The existing `slack.app.ts` factory is a placeholder for this work.
 2. **Event routing:** register handlers in `EventRouter`; implement a worker and status transitions, retries, and deduplication before dispatching persisted events.
 3. **OpenAI:** set `OPENAI_API_KEY` and `OPENAI_MODEL`. Implement the Responses API function-calling loop in `OpenAIService`, using the tool registry and recording results in `ToolCall`.
