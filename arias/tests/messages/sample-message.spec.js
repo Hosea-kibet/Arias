@@ -35,11 +35,25 @@ describe('messages', () => {
     });
   });
 
-  it('should log error when say throws exception', async () => {
+  it('should log both errors when say throws in reply and fallback', async () => {
     const testError = new Error('test exception');
     fakeSay = mock.fn(() => {
       throw testError;
     });
+    await sampleMessageCallback({
+      event: fakeEvent,
+      say: fakeSay,
+      logger: fakeLogger,
+      runAgentFn: async prompt => `Agent response to: ${prompt}`,
+    });
+
+    assert.strictEqual(fakeSay.mock.callCount(), 2);
+    assert.deepEqual(fakeLogger.error.mock.calls[0].arguments, [testError]);
+    assert.deepEqual(fakeLogger.error.mock.calls[1].arguments, [testError]);
+  });
+
+  it('should send fallback message when the agent throws', async () => {
+    const testError = new Error('agent failure');
     await sampleMessageCallback({
       event: fakeEvent,
       say: fakeSay,
@@ -50,6 +64,11 @@ describe('messages', () => {
     });
 
     assert.strictEqual(fakeSay.mock.callCount(), 1);
+    const callArgs = fakeSay.mock.calls[0].arguments[0];
+    assert.deepEqual(callArgs, {
+      text: 'I could not process that request right now. Please try again.',
+      thread_ts: '123.456',
+    });
     assert.deepEqual(fakeLogger.error.mock.calls[0].arguments, [testError]);
   });
 });

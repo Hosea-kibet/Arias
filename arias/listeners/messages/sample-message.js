@@ -13,7 +13,7 @@ const sampleMessageCallback = async ({ event, say, logger, runAgentFn = runAgent
     logger.error(error);
     try {
       await say({
-        text: 'I could not process that request. Check that OPENAI_API_KEY and OPENAI_MODEL are configured.',
+        text: 'I could not process that request right now. Please try again.',
         thread_ts: threadTs,
       });
     } catch (responseError) {
