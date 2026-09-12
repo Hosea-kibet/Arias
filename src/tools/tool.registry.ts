@@ -1,4 +1,5 @@
 import { CalendarService, createCalendarEventSchema } from '../integrations/calendar/calendar.service.js';
+import { createGoogleClient } from '../integrations/google/google.client.js';
 import { SheetsService, appendSheetRowsSchema } from '../integrations/sheets/sheets.service.js';
 import { RemindersService, createReminderSchema } from '../integrations/reminders/reminders.service.js';
 import { z } from 'zod';
