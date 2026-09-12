@@ -70,4 +70,25 @@ describe('messages', () => {
     });
     assert.deepEqual(fakeLogger.error.mock.calls[0].arguments, [testError]);
   });
+
+  it('should log both errors when agent and fallback reply fail', async () => {
+    const agentError = new Error('agent failure');
+    const sendError = new Error('send failure');
+    fakeSay = mock.fn(() => {
+      throw sendError;
+    });
+
+    await sampleMessageCallback({
+      event: fakeEvent,
+      say: fakeSay,
+      logger: fakeLogger,
+      runAgentFn: async () => {
+        throw agentError;
+      },
+    });
+
+    assert.strictEqual(fakeSay.mock.callCount(), 1);
+    assert.deepEqual(fakeLogger.error.mock.calls[0].arguments, [agentError]);
+    assert.deepEqual(fakeLogger.error.mock.calls[1].arguments, [sendError]);
+  });
 });
