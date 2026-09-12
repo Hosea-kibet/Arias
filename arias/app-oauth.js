@@ -12,7 +12,7 @@ const app = new App({
   clientId: process.env.SLACK_CLIENT_ID,
   clientSecret: process.env.SLACK_CLIENT_SECRET,
   stateSecret,
-  scopes: ['channels:history', 'chat:write', 'commands'],
+  scopes: ['channels:history', 'im:history', 'views:write', 'chat:write', 'commands'],
   // FileInstallationStore is intended for development purposes only
   // Learn more: https://docs.slack.dev/tools/bolt-js/concepts/authenticating-oauth#installation-store
   installationStore: new FileInstallationStore(),

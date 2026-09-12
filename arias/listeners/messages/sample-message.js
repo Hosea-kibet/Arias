@@ -1,8 +1,8 @@
 import { runAgent } from '../../agent/openai.js';
 
 const sampleMessageCallback = async ({ event, say, logger, runAgentFn = runAgent }) => {
-  const threadTs = event?.thread_ts || event?.ts;
   if (!event || event.subtype || event.bot_id || !event.text) return;
+  const threadTs = event.thread_ts || event.ts;
 
   let response;
   try {
