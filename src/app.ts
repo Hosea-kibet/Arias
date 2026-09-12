@@ -12,7 +12,7 @@ import { EventWorker } from './events/event-worker.js';
 import { ToolExecutor } from './tools/tool.executor.js';
 import { createToolRegistry } from './tools/tool.registry.js';
 
-export function buildApp(config: Config, db: Db) {
+export function buildApp(config: Config, db: Db, events = new EventService(new EventRepository(db))) {
   const app = Fastify({
     logger: config.NODE_ENV === 'test' ? false : {
       redact: ['req.headers.authorization'],
@@ -26,11 +26,7 @@ export function buildApp(config: Config, db: Db) {
     return { status: 'ok', service: 'arias' };
   });
 
-  const events = new EventRepository(db);
-  const executor = new ToolExecutor(events, createToolRegistry());
-  const router = new EventRouter().registerToolEvent('tool.invoke', executor);
-  const worker = new EventWorker(events, router);
-  const controller = new EventController(new EventService(events, worker));
+  const controller = new EventController(events);
   app.register(async api => {
     api.addHook('onRequest', requireApiKey(config.API_KEY));
     eventRoutes(api, controller);
