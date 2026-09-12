@@ -2,13 +2,11 @@ import { runAgent } from '../../agent/openai.js';
 
 const sampleMessageCallback = async ({ event, say, logger, runAgentFn = runAgent }) => {
   const threadTs = event?.thread_ts || event?.ts;
+  if (!event || event.subtype || event.bot_id || !event.text) return;
+
+  let response;
   try {
-    if (!event || event.subtype || event.bot_id || !event.text) return;
-    const response = await runAgentFn(event.text);
-    await say({
-      text: response,
-      thread_ts: threadTs,
-    });
+    response = await runAgentFn(event.text);
   } catch (error) {
     logger.error(error);
     try {
@@ -19,6 +17,16 @@ const sampleMessageCallback = async ({ event, say, logger, runAgentFn = runAgent
     } catch (responseError) {
       logger.error(responseError);
     }
+    return;
+  }
+
+  try {
+    await say({
+      text: response,
+      thread_ts: threadTs,
+    });
+  } catch (error) {
+    logger.error(error);
   }
 };
 

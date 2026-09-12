@@ -35,7 +35,7 @@ describe('messages', () => {
     });
   });
 
-  it('should log both errors when say throws in reply and fallback', async () => {
+  it('should log reply send errors without sending fallback', async () => {
     const testError = new Error('test exception');
     fakeSay = mock.fn(() => {
       throw testError;
@@ -47,9 +47,8 @@ describe('messages', () => {
       runAgentFn: async prompt => `Agent response to: ${prompt}`,
     });
 
-    assert.strictEqual(fakeSay.mock.callCount(), 2);
+    assert.strictEqual(fakeSay.mock.callCount(), 1);
     assert.deepEqual(fakeLogger.error.mock.calls[0].arguments, [testError]);
-    assert.deepEqual(fakeLogger.error.mock.calls[1].arguments, [testError]);
   });
 
   it('should send fallback message when the agent throws', async () => {
